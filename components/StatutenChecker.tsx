@@ -18,7 +18,7 @@ const AMPEL_UI: Record<
     dot: "bg-green-500",
     card: "border-green-300 bg-green-50",
     title: "Grün – Statuten gehen durch",
-    sub: "Keine kritischen Mängel gefunden. Eine abschließende juristische Kontrolle wird trotzdem empfohlen.",
+    sub: "Keine kritischen oder wichtigen Mängel. Optionale Empfehlungen können noch offen sein; eine abschließende juristische Kontrolle wird trotzdem empfohlen.",
   },
   orange: {
     dot: "bg-amber-500",
@@ -68,6 +68,13 @@ const STATUS_ORDER: Record<CheckStatus, number> = {
   nicht_anwendbar: 3,
 };
 
+/** „Muss/soll“-Punkt (kritisch oder wichtig) – bestimmt Ampel & Aufgabenliste. */
+const istWichtig = (c: CheckResult) =>
+  c.severity === "kritisch" || c.severity === "wichtig";
+/** Offener Punkt (rot oder orange). */
+const istOffen = (c: CheckResult) =>
+  c.status === "rot" || c.status === "orange";
+
 // ── Hilfskomponenten ──────────────────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -90,7 +97,13 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function CheckRow({ check }: { check: CheckResult }) {
+function CheckRow({
+  check,
+  kompakt = false,
+}: {
+  check: CheckResult;
+  kompakt?: boolean;
+}) {
   const s = STATUS_UI[check.status];
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -110,12 +123,14 @@ function CheckRow({ check }: { check: CheckResult }) {
               </span>
             )}
           </div>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {check.paragraph} · {check.rechtsgrundlage} ·{" "}
-            <span className="capitalize">
-              {SEVERITY_LABEL[check.severity] ?? check.severity}
-            </span>
-          </p>
+          {!kompakt && (
+            <p className="mt-0.5 text-xs text-slate-500">
+              {check.paragraph} · {check.rechtsgrundlage} ·{" "}
+              <span className="capitalize">
+                {SEVERITY_LABEL[check.severity] ?? check.severity}
+              </span>
+            </p>
+          )}
         </div>
       </div>
 
@@ -125,25 +140,40 @@ function CheckRow({ check }: { check: CheckResult }) {
         </p>
       )}
 
-      {check.fundstelle && (
+      {check.fundstelle && !kompakt && (
         <blockquote className="mt-2 border-l-2 border-slate-300 pl-3 text-sm italic text-slate-500">
           „{check.fundstelle}“
         </blockquote>
       )}
 
-      {check.korrekturvorschlag && (
-        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-              Korrekturvorschlag
-            </span>
-            <CopyButton text={check.korrekturvorschlag} />
+      {check.korrekturvorschlag &&
+        (kompakt ? (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-semibold text-blue-700 hover:underline">
+              Formulierungsvorschlag anzeigen
+            </summary>
+            <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3">
+              <div className="mb-1 flex items-center justify-end">
+                <CopyButton text={check.korrekturvorschlag} />
+              </div>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                {check.korrekturvorschlag}
+              </p>
+            </div>
+          </details>
+        ) : (
+          <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                Korrekturvorschlag
+              </span>
+              <CopyButton text={check.korrekturvorschlag} />
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+              {check.korrekturvorschlag}
+            </p>
           </div>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
-            {check.korrekturvorschlag}
-          </p>
-        </div>
-      )}
+        ))}
     </div>
   );
 }
@@ -172,6 +202,7 @@ export default function StatutenChecker() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [nurProbleme, setNurProbleme] = useState(false);
+  const [detailsOffen, setDetailsOffen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -310,6 +341,38 @@ export default function StatutenChecker() {
             </div>
           </div>
 
+          {/* Aufgabenliste – nur wirklich Wichtiges, in Klartext */}
+          {(() => {
+            const aufgaben = result.checks
+              .filter((c) => istWichtig(c) && istOffen(c))
+              .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+            return (
+              <div>
+                <h3 className="mb-1 text-base font-bold text-slate-900">
+                  Das solltest du vor der Einreichung erledigen
+                </h3>
+                {aufgaben.length === 0 ? (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                    Keine kritischen oder wichtigen offenen Punkte. 🎉 Optionale
+                    Empfehlungen findest du weiter unten.
+                  </div>
+                ) : (
+                  <>
+                    <p className="mb-3 text-xs text-slate-500">
+                      {aufgaben.length} Punkt(e), nach Dringlichkeit sortiert –
+                      Formulierungsvorschläge jeweils aufklappbar.
+                    </p>
+                    <div className="space-y-3">
+                      {aufgaben.map((c) => (
+                        <CheckRow key={c.id} check={c} kompakt />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Anwalts-Erstblick */}
           {(() => {
             const erst = result.checks
@@ -355,6 +418,29 @@ export default function StatutenChecker() {
             ))}
           </div>
 
+          {/* Optionale Empfehlungen („Kür“) – Best Practice, nicht erforderlich */}
+          {(() => {
+            const optional = result.checks
+              .filter((c) => c.severity === "empfohlen" && istOffen(c))
+              .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+            if (optional.length === 0) return null;
+            return (
+              <details className="rounded-xl border border-slate-200 bg-white p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                  Optionale Empfehlungen · {optional.length}
+                  <span className="ml-1 font-normal text-slate-500">
+                    – nicht erforderlich, aber empfehlenswert
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {optional.map((c) => (
+                    <CheckRow key={c.id} check={c} kompakt />
+                  ))}
+                </div>
+              </details>
+            );
+          })()}
+
           {/* Strukturbefunde */}
           {result.strukturBefunde.length > 0 && (
             <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -379,53 +465,70 @@ export default function StatutenChecker() {
             </div>
           )}
 
-          {/* Detailprüfung */}
+          {/* Detailprüfung – vollständig, einklappbar (Standard: zu) */}
           <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">
-                Detailprüfung ({result.checks.length} Punkte)
-              </h3>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={nurProbleme}
-                  onChange={(e) => setNurProbleme(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                Nur Probleme zeigen
-              </label>
-            </div>
+            <button
+              type="button"
+              onClick={() => setDetailsOffen((v) => !v)}
+              className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition hover:bg-slate-50"
+            >
+              <span className="text-base font-bold text-slate-900">
+                Vollständige Detailprüfung ({result.checks.length} Punkte)
+              </span>
+              <span className="shrink-0 text-sm font-medium text-slate-500">
+                {detailsOffen ? "▲ einklappen" : "▼ anzeigen"}
+              </span>
+            </button>
 
-            <div className="space-y-6">
-              {result.kategorien.map((cat) => {
-                const items = result.checks
-                  .filter((c) => c.category === cat.category)
-                  .filter((c) =>
-                    nurProbleme
-                      ? c.status === "rot" || c.status === "orange"
-                      : true,
-                  )
-                  .sort(
-                    (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status],
-                  );
-                if (items.length === 0) return null;
-                return (
-                  <section key={cat.category}>
-                    <div className="mb-2 flex items-center gap-2">
-                      <span className={`h-2.5 w-2.5 rounded-full ${AMPEL_UI[cat.ampel].dot}`} />
-                      <h4 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-                        {cat.label}
-                      </h4>
-                    </div>
-                    <div className="space-y-3">
-                      {items.map((c) => (
-                        <CheckRow key={c.id} check={c} />
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
+            {detailsOffen && (
+              <div className="mt-4">
+                <div className="mb-3 flex items-center justify-end">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={nurProbleme}
+                      onChange={(e) => setNurProbleme(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                    Nur Probleme zeigen
+                  </label>
+                </div>
+
+                <div className="space-y-6">
+                  {result.kategorien.map((cat) => {
+                    const items = result.checks
+                      .filter((c) => c.category === cat.category)
+                      .filter((c) =>
+                        nurProbleme
+                          ? c.status === "rot" || c.status === "orange"
+                          : true,
+                      )
+                      .sort(
+                        (a, b) =>
+                          STATUS_ORDER[a.status] - STATUS_ORDER[b.status],
+                      );
+                    if (items.length === 0) return null;
+                    return (
+                      <section key={cat.category}>
+                        <div className="mb-2 flex items-center gap-2">
+                          <span
+                            className={`h-2.5 w-2.5 rounded-full ${AMPEL_UI[cat.ampel].dot}`}
+                          />
+                          <h4 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                            {cat.label}
+                          </h4>
+                        </div>
+                        <div className="space-y-3">
+                          {items.map((c) => (
+                            <CheckRow key={c.id} check={c} />
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Disclaimer */}

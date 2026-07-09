@@ -68,16 +68,17 @@ Statuten-Entwurf hochladen, „Statuten prüfen“ klicken – fertig.
 | Variable           | Pflicht | Bedeutung                                                                 |
 | ------------------ | ------- | ------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`   | ✅      | Dein OpenAI-API-Key.                                                      |
-| `OPENAI_MODEL`     | –       | Modell. Standard `gpt-4.1`. Günstiger: `gpt-4.1-mini` / `gpt-4o-mini`.    |
+| `OPENAI_MODEL`     | –       | Modell. Standard `gpt-5.4-mini`. Mehr Sorgfalt: `gpt-5.4` / `gpt-5.5`.    |
 | `APP_ACCESS_TOKEN` | –       | Wenn gesetzt, muss jeder Request den Header `x-app-token` mitschicken (einfacher Zugriffsschutz fürs Deployment). |
 
-**Kosten/Qualität:** `gpt-4.1` liefert starke Qualität für einige Cent pro
-Prüfung. Für hohes Volumen sind `gpt-4.1-mini` oder `gpt-4o-mini` deutlich
-günstiger (Modell via `OPENAI_MODEL`). Der stabile, vorangestellte Teil des
-Prompts (Prüfkatalog + Musterstatuten-Referenz) wird von OpenAI automatisch
-gecacht, was wiederholte Prüfungen verbilligt. Wichtig: Das gewählte Modell
-muss **Structured Outputs** unterstützen (gpt-4.1-Familie und gpt-4o ab
-`2024-08-06` tun das).
+**Kosten/Qualität:** Standard ist `gpt-5.4-mini` – ein Reasoning-Modell mit
+strikten Structured Outputs für wenige Cent pro Prüfung. Für besonders knifflige
+Fälle liefert `gpt-5.4` (bzw. `gpt-5.5`) mehr Sorgfalt, kostet aber ein Vielfaches
+(Modell via `OPENAI_MODEL`). Der stabile, vorangestellte Teil des Prompts
+(Prüfkatalog + Musterstatuten-Referenz) wird von OpenAI automatisch gecacht, was
+wiederholte Prüfungen verbilligt. Wichtig: Das gewählte Modell muss **Structured
+Outputs** unterstützen (die GPT-5-Familie tut das); Reasoning-Modelle steuern die
+Gründlichkeit über `reasoning_effort` (im Code auf „medium“).
 
 ---
 
@@ -94,8 +95,8 @@ deployen:
 Hinweise:
 
 - Die Analyse kann 20–90 Sekunden dauern. Die API-Route ist auf `maxDuration = 120`
-  gesetzt (Vercel Pro). Bei Timeouts: ein schnelleres Modell (z. B. `gpt-4.1-mini`)
-  via `OPENAI_MODEL` wählen bzw. `maxDuration` in `app/api/analyze/route.ts` erhöhen.
+  gesetzt (Vercel Pro). Bei Timeouts: `reasoning_effort` in `lib/analyze.ts` auf
+  „low“ senken bzw. `maxDuration` in `app/api/analyze/route.ts` erhöhen.
 - **Datenschutz:** Hochgeladene Statuten enthalten oft personenbezogene Daten.
   Sie werden zur Analyse an die OpenAI-API gesendet und von dieser App **nicht
   gespeichert** (kein Datenbank-/Datei-Persistieren). Für öffentlichen Betrieb

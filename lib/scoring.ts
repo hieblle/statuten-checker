@@ -1,9 +1,12 @@
 // Aggregation der Einzelurteile zur Ampel.
 // Die Gesamt- und Kategorie-Ampel wird DETERMINISTISCH aus den Prüfurteilen
 // berechnet (nicht vom KI-Modell „geraten“):
-//   • ROT     – mindestens ein KRITISCHER Punkt ist nicht erfüllt (rot)
-//   • ORANGE  – kein kritischer Fehler, aber irgendetwas ist rot oder unklar
-//   • GRÜN    – alle anwendbaren Punkte erfüllt
+//   • ROT     – mindestens ein KRITISCHER Pflichtpunkt ist nicht erfüllt (rot)
+//   • ORANGE  – kein kritischer Fehler, aber ein KRITISCHER oder WICHTIGER
+//               Punkt ist offen/unklar (rot oder orange)
+//   • GRÜN    – sonst; reine „empfohlen“-Punkte (Best Practice / „Kür“) ziehen
+//               die Ampel bewusst NICHT auf orange, damit „grün = geht durch“
+//               wieder erreichbar ist und aussagekräftig bleibt.
 
 import type {
   Ampel,
@@ -24,9 +27,18 @@ const CATEGORY_ORDER: Category[] = [
 
 function ampelFor(items: { severity: Severity; status: CheckStatus }[]): Ampel {
   const relevant = items.filter((i) => i.status !== "nicht_anwendbar");
+  // Kritischer Pflichtpunkt nicht erfüllt → rot.
   if (relevant.some((i) => i.severity === "kritisch" && i.status === "rot"))
     return "rot";
-  if (relevant.some((i) => i.status === "rot" || i.status === "orange"))
+  // Kritischer oder wichtiger Punkt offen/unklar → orange.
+  // Reine „empfohlen“-Punkte (Best Practice / „Kür“) beeinflussen die Ampel NICHT.
+  if (
+    relevant.some(
+      (i) =>
+        (i.severity === "kritisch" || i.severity === "wichtig") &&
+        (i.status === "rot" || i.status === "orange"),
+    )
+  )
     return "orange";
   return "gruen";
 }
@@ -59,9 +71,6 @@ export function fallbackZusammenfassung(
   const kritischRot = checks.filter(
     (c) => c.severity === "kritisch" && c.status === "rot",
   );
-  const rot = checks.filter((c) => c.status === "rot");
-  const orange = checks.filter((c) => c.status === "orange");
-
   if (ampel === "rot") {
     return `Die Statuten haben ${kritischRot.length} kritische(n) Mangel/Mängel, die einer Eintragung bzw. der Steuerbegünstigung entgegenstehen können – darunter: ${kritischRot
       .slice(0, 3)
@@ -69,7 +78,12 @@ export function fallbackZusammenfassung(
       .join(", ")}. Eine Überarbeitung ist erforderlich.`;
   }
   if (ampel === "orange") {
-    return `Keine kritischen Verstöße, aber ${rot.length + orange.length} Punkt(e) sollten vor der Einreichung geprüft/nachgebessert werden. Bitte manuell drüberlesen.`;
+    const offen = checks.filter(
+      (c) =>
+        (c.severity === "kritisch" || c.severity === "wichtig") &&
+        (c.status === "rot" || c.status === "orange"),
+    ).length;
+    return `Keine kritischen Verstöße, aber ${offen} wichtige(r) Punkt(e) sollten vor der Einreichung geprüft/nachgebessert werden. Bitte manuell drüberlesen.`;
   }
-  return "Alle geprüften Punkte sind erfüllt. Eine abschließende juristische Kontrolle wird dennoch empfohlen.";
+  return "Keine kritischen oder wichtigen Mängel. Einzelne optionale Empfehlungen können noch offen sein; eine abschließende juristische Kontrolle wird dennoch empfohlen.";
 }

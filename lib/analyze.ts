@@ -18,7 +18,19 @@ import { MUSTERSTATUTEN_HAUPTVEREIN } from "./musterstatuten";
 import { structuralContextForPrompt, type StructuralAnalysis } from "./structural";
 import type { CheckResult, CheckStatus } from "./types";
 
-export const DEFAULT_MODEL = "gpt-4.1";
+// Standard: gpt-5.4-mini – aktuelles Reasoning-Modell mit strikten Structured
+// Outputs, gute juristische Feinbeurteilung zu wenigen Cent pro Prüfung.
+// Über OPENAI_MODEL umstellbar (z. B. "gpt-5.4" für mehr Sorgfalt).
+export const DEFAULT_MODEL = "gpt-5.4-mini";
+
+// Reasoning-Aufwand der GPT-5-/o-Serie: "low" = schneller/günstiger,
+// "medium" = guter Standard für die Statutenprüfung, "high"/"xhigh" = gründlicher.
+const REASONING_EFFORT = "medium" as const;
+
+/** GPT-5- und o-Serie sind Reasoning-Modelle: kein „temperature“, dafür „reasoning_effort“. */
+function istReasoningModell(model: string): boolean {
+  return /^(gpt-5|o\d)/i.test(model);
+}
 
 export class AnalyzeError extends Error {
   constructor(message: string) {
@@ -135,17 +147,23 @@ ${opts.text}
 Gib für jeden Prüfpunkt des Katalogs genau ein Urteil zurück (Feld "pruefungen"), plus eine "zusammenfassung".`;
 
   const t0 = Date.now();
+  const reasoning = istReasoningModell(model);
   let completion: Awaited<ReturnType<typeof client.chat.completions.parse>>;
   try {
     completion = await client.chat.completions.parse({
       model,
-      temperature: 0.2,
-      max_completion_tokens: 8000,
+      // Reasoning-Tokens zählen mit – großzügiges Limit gegen Abschneiden.
+      max_completion_tokens: 16000,
       response_format: zodResponseFormat(ResultSchema, "statuten_pruefung"),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userMessage },
       ],
+      // Reasoning-Modelle (GPT-5/o-Serie) akzeptieren kein „temperature“, sondern
+      // steuern über „reasoning_effort“; ältere Modelle nutzen weiter temperature.
+      ...(reasoning
+        ? { reasoning_effort: REASONING_EFFORT }
+        : { temperature: 0.2 }),
     });
   } catch (e) {
     if (e instanceof OpenAI.AuthenticationError)

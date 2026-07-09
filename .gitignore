@@ -29,3 +29,6 @@ next-env.d.ts
 
 # uploaded test files
 /tmp-uploads
+
+# local tooling (Claude Code project config)
+.claude/
